@@ -1,0 +1,75 @@
+---
+- hosts: localhost
+  any_errors_fatal: true
+  vars_prompt:
+
+    - name: username
+      prompt: "Define the name of the new user account"
+      private: no
+
+    - name: password1
+      prompt: "Define password for said account"
+      unsafe: yes
+
+    - name: password2
+      prompt: "Repeat password"
+      unsafe: yes
+
+    - name: strict_security_prompt
+      prompt: "Do you want strict security (No PAM/Password login in SSH) (yes/no)?"
+      private: no
+
+  tasks:
+    - name: checking for password consistency
+      fail:
+        msg: Passwords do not match!
+      when: password1 != password2
+
+    - name: checking for validity of security prompt answer
+      fail:
+        msg: Please answer security prompt with 'yes' or 'no' only!
+      when:
+        - strict_security_prompt != 'yes'
+        - strict_security_prompt != 'no'
+
+    - name: checking if vars file is present
+      stat:
+        path: "./vars.yml"
+      register: vars_file
+
+    - name: creating vars file if not present
+      file:
+        path: "./vars.yml"
+        state: touch
+      when: not vars_file.stat.exists
+
+    - name: formatting vars file
+      lineinfile:
+        path: "./vars.yml"
+        insertbefore: BOF
+        line: "---"
+      when: not vars_file.stat.exists
+
+    - name: writing pasword to vars file
+      lineinfile:
+        regexp: '^password:'
+        line: "password: {{ password1 }}"
+        dest: ./vars.yml
+
+    - name: writing username to vars file
+      lineinfile:
+        regexp: '^user:'
+        line: "user: {{ username }}"
+        dest: ./vars.yml
+
+    - name: writing security preference to vars file
+      lineinfile:
+        regexp: '^strict_security:'
+        line: "strict_security: {{ strict_security_prompt }}"
+        dest: ./vars.yml
+    
+    - name: setting default user to available in vars file
+      lineinfile:
+        regexp: '^default_user_present:'
+        line: "default_user_present: True"
+        dest: ./vars.yml

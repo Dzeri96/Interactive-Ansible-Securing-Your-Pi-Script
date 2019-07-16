@@ -1,0 +1,17 @@
+---
+- hosts: pis
+  ignore_unreachable: yes
+  remote_user: pi
+  vars:
+    ansible_ssh_pass: raspberry
+  vars_files:
+    - ./vars.yml
+  tasks:
+  - name: creating new user and adding him to sudoers
+    become: true
+    become_method: sudo
+    user:
+      name: "{{ user }}"
+      groups: sudo
+      append: yes
+      password: "{{ password | password_hash('sha512') }}"

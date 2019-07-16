@@ -1,0 +1,128 @@
+---
+- name: checking if pi user present
+  import_playbook: userswap.yml
+  when: default_user_present|bool
+
+- hosts: pis
+  remote_user: "{{ user }}"
+  vars:
+    ansible_ssh_pass: "{{ password }}"
+    ansible_become_pass: "{{ password }}"
+  vars_files:
+    - ./vars.yml
+  tasks:
+  - name: removing default user from ssh list
+    become: true
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^AllowUsers'
+      line: 'AllowUsers {{ user }}'
+  - name: removing root from ssh list
+    become: true
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^PermitRootLogin'
+      line: 'PermitRootLogin No'
+    register: default_removed
+  - name: saving default user availability in vars file
+    lineinfile:
+        regexp: '^default_user_present:'
+        line: "default_user_present: False"
+        dest: ./vars.yml
+    delegate_to: localhost
+    when: default_removed is succeeded or changed
+  - name: requiring pi user to input sudo password
+    become: true
+    lineinfile:
+      dest: /etc/sudoers.d/010_pi-nopasswd
+      regexp: '^pi ALL'
+      line: 'pi ALL=(ALL) PASSWD: ALL'
+#TODO: maybe generate random password and save it?
+  - name: changing default user's password
+    become: true
+    user:
+      name: pi
+      password: "{{ password | password_hash('sha512') }}"
+  - name: checking if id_rsa.pub is present in ~/.ssh
+    stat:
+      path: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa.pub"
+    register: public_key
+    delegate_to: localhost
+  - name: saving public key existance var to file
+    lineinfile:
+      regexp: '^public_key_present'
+      line: "public_key_present: {{ public_key.stat.exists }}"
+      dest: ./vars.yml
+    delegate_to: localhost
+  - name: copying over public key if it exists
+    become: true
+    authorized_key:
+      user: "{{ user }}"
+      state: present
+      key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/id_rsa.pub') }}"
+    when: public_key.stat.exists
+  - name: "STRICT SECURITY: disabling challenge-response authentication"
+    become: true
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^ChallengeResponseAuthentication'
+      line: 'ChallengeResponseAuthentication No'
+    when: strict_security|bool and public_key.stat.exists
+  - name: "STRICT SECURITY: disabling PAM"
+    become: true
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^UsePAM'
+      line: 'UsePAM No'
+    when: strict_security|bool
+  - name: "STRICT SECURITY: disabling password authentication"
+    become: true
+    lineinfile:
+      dest: /etc/ssh/sshd_config
+      regexp: '^PasswordAuthentication'
+      line: 'PasswordAuthentication No'
+    when: strict_security|bool and public_key.stat.exists
+  - name: reloading sshd
+    become: true
+    service:
+      name: ssh
+      state: reloaded
+  - name: updating apt cache
+    become: true
+    apt:
+      update_cache: true
+  - name: updating openssh-server
+    become: true
+    apt:
+      name: openssh-server
+      state: latest
+  - name: installing ufw
+    become: true
+    apt:
+      name: ufw
+      state: latest
+  - name: allowing ssh in ufw
+    become: true
+    ufw:
+      app: ssh
+      rule: allow
+  - name: enabling ufw
+    become: true
+    ufw:
+      state: enabled
+  - name: installing fail2ban
+    become: true
+    apt:
+      name: fail2ban
+      state: latest
+  - name: checking if jail.local is present in /etc/fail2ban/
+    stat:
+      path: "/etc/fail2ban/jail.local"
+    register: jail_local
+  - name: enabling fail2ban
+    become: true
+    copy:
+      src: /etc/fail2ban/jail.conf
+      dest: /etc/fail2ban/jail.local
+      remote_src: true
+    when: not jail_local.stat.exists
