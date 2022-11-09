@@ -58,7 +58,7 @@ Contributions are welcome! Open an issue or go straight for the PR.
 
 ## Authors
 
-* **Filip Darmanovic** - *Initial work*
+* **Dzeri96** - *Initial work*
 
 ## License
 
